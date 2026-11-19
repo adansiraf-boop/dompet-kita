@@ -1,6 +1,6 @@
 'use strict';
 /* ====== PENGATURAN: tempel URL Web App dari Apps Script di sini ====== */
-const API_URL='GANTI_DENGAN_URL_WEB_APP';
+const API_URL='https://script.google.com/macros/s/AKfycbwfKtxYr-2_z4qRWIfgiCyMv_xPDsTbwZla43tv8XgPcdb99KHA4bvzwZFY7BgxsKn5/exec';
 /* ===================================================================== */
 const $=s=>document.querySelector(s),LS=localStorage;
 let PIN=LS.pin||'',NAME=LS.name||'',busy=0,f={};
