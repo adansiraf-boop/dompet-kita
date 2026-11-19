@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="id"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f6f7fc">
+<title>PetaDana</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<div id="login" class="login hide"><div class="pane">
+<h2>PetaDana</h2><small>Masukkan PIN rahasia keluarga. Gunakan PIN yang sama di HP istri/suami.</small>
+<label>Nama kamu</label><input id="nm" placeholder="mis. Budi" autocomplete="off">
+<label>PIN</label><input id="pin" type="password" autocomplete="off">
+<button class="btn" data-a="login">Masuk</button></div></div>
+<header class="top"><h1 id="title">Beranda</h1><div id="sync" class="sync"></div></header>
+<main id="app"></main>
+<nav class="nav">
+<button data-a="tab" data-v="home"><span>🏠</span>Beranda</button>
+<button data-a="tab" data-v="hist"><span>📋</span>Riwayat</button>
+<button class="fab" data-a="fab" aria-label="Tambah transaksi">+</button>
+<button data-a="tab" data-v="stat"><span>📊</span>Statistik</button>
+<button data-a="tab" data-v="acc"><span>🏦</span>Rekening</button>
+</nav>
+<div id="sheet" class="sheet"></div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body></html>
