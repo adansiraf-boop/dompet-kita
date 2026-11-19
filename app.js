@@ -9,13 +9,16 @@ const st={tab:'home',per:'bulan',from:'',to:'',trend:'harian',q:'',fc:'',ff:'',f
 const iso=d=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
 const today=()=>iso(new Date()),dt=s=>new Date(s+'T00:00');
 const addD=(s,n)=>{const d=dt(s);d.setDate(d.getDate()+n);return iso(d)};
-const rp=n=>(n<0?'-':'')+'Rp '+Math.abs(Math.round(Number(n)||0)).toLocaleString('id-ID');
+let HID=LS.hide=='1';
+const rp=n=>HID?'Rp ••••••':(n<0?'-':'')+'Rp '+Math.abs(Math.round(Number(n)||0)).toLocaleString('id-ID');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtD=s=>dt(s).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});
 const sum=a=>a.reduce((s,x)=>s+Number(x.nominal),0);
 const inR=(a,x,y)=>a.filter(r=>r.tanggal>=x&&r.tanggal<=y);
 const sv=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 const I={in:sv('<path d="M12 5v14M6 13l6 6 6-6"/>'),out:sv('<path d="M12 19V5M6 11l6-6 6 6"/>'),tf:sv('<path d="M7 7h12M15 3l4 4-4 4M17 17H5M9 13l-4 4 4 4"/>'),bank:sv('<path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>'),empty:sv('<path d="M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>')};
+I.eye=sv('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>');
+I.eyeoff=sv('<path d="M17.94 17.94A10.9 10.9 0 0 1 12 19c-6.4 0-10-7-10-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.1 9.1 0 0 1 12 5c6.4 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24M1 1l22 22"/>');
 const shortD=s=>dt(s).toLocaleDateString('id-ID',{day:'numeric',month:'short'});
 const gl=s=>s==today()?'Hari ini':s==addD(today(),-1)?'Kemarin':fmtD(s);
 const empty=(m,b)=>`<div class="empty"><div class="eic">${I.empty}</div><p>${m}</p>${b||''}</div>`;
@@ -50,7 +53,7 @@ function softRender(){if(sheetOpen()||document.activeElement.matches('input,sele
 
 /* ---------- Tampilan ---------- */
 const views={home,hist,stat,acc};
-function render(){$('#title').textContent={home:'Beranda',hist:'Riwayat',stat:'Statistik',acc:'Rekening'}[st.tab];
+function render(){$('#eye').innerHTML=I[HID?'eyeoff':'eye'];$('#title').textContent={home:'Beranda',hist:'Riwayat',stat:'Statistik',acc:'Rekening'}[st.tab];
  document.querySelectorAll('.nav [data-v]').forEach(b=>b.classList.toggle('on',b.dataset.v==st.tab));
  $('#app').innerHTML=(!LS.cache&&!D.rekening.length&&PIN)?'<div class="sk"></div><div class="sk"></div><div class="sk"></div>':views[st.tab]()}
 function perBar(){const P=[['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini'],['custom','Kustom']];
@@ -151,7 +154,7 @@ const mq=matchMedia('(prefers-color-scheme:dark)');
 function theme(){const t=LS.theme||'auto';document.documentElement.dataset.theme=t=='auto'?(mq.matches?'dark':'light'):t;
  document.querySelector('meta[name=theme-color]').content=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()}
 mq.onchange=theme;
-const A={reset:()=>{st.q=st.fc=st.ff=st.ft='';render()},tab:d=>{st.tab=d.v;render();scrollTo(0,0)},per:d=>{st.per=d.v;render()},trend:d=>{st.trend=d.v;render()},
+const A={eye:()=>{HID=!HID;LS.hide=HID?'1':'0';render()},reset:()=>{st.q=st.fc=st.ff=st.ft='';render()},tab:d=>{st.tab=d.v;render();scrollTo(0,0)},per:d=>{st.per=d.v;render()},trend:d=>{st.trend=d.v;render()},
  fab:()=>openTx('out'),tf:()=>openTx('tf'),edit:d=>openTx(d.k,d.id),close,save:saveTx,saveacc:saveAcc,delacc:delAcc,
  type:d=>{readF();f.k=d.v;f.kategori='';drawTx()},
  pick:(d,el)=>{f[d.f]=d.v;el.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on')},
