@@ -1,6 +1,6 @@
 'use strict';
 /* ====== PENGATURAN: tempel URL Web App dari Apps Script di sini ====== */
-const API_URL='https://script.google.com/macros/s/AKfycbwfKtxYr-2_z4qRWIfgiCyMv_xPDsTbwZla43tv8XgPcdb99KHA4bvzwZFY7BgxsKn5/exec';
+const API_URL='GANTI_DENGAN_URL_WEB_APP';
 /* ===================================================================== */
 const $=s=>document.querySelector(s),LS=localStorage;
 let PIN=LS.pin||'',NAME=LS.name||'',busy=0,f={};
@@ -14,7 +14,11 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmtD=s=>dt(s).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});
 const sum=a=>a.reduce((s,x)=>s+Number(x.nominal),0);
 const inR=(a,x,y)=>a.filter(r=>r.tanggal>=x&&r.tanggal<=y);
-const empty=(m,b)=>`<div class="empty"><div>📭</div><p>${m}</p>${b||''}</div>`;
+const sv=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const I={in:sv('<path d="M12 5v14M6 13l6 6 6-6"/>'),out:sv('<path d="M12 19V5M6 11l6-6 6 6"/>'),tf:sv('<path d="M7 7h12M15 3l4 4-4 4M17 17H5M9 13l-4 4 4 4"/>'),bank:sv('<path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>'),empty:sv('<path d="M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>')};
+const shortD=s=>dt(s).toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+const gl=s=>s==today()?'Hari ini':s==addD(today(),-1)?'Kemarin':fmtD(s);
+const empty=(m,b)=>`<div class="empty"><div class="eic">${I.empty}</div><p>${m}</p>${b||''}</div>`;
 const grp=a=>{const m={};a.forEach(x=>m[x.kategori]=(m[x.kategori]||0)+Number(x.nominal));return Object.entries(m).sort((a,b)=>b[1]-a[1])};
 const cats=k=>D.kategori.filter(c=>c.jenis==(k=='in'?'Pemasukan':'Pengeluaran')).map(c=>String(c.nama)).sort((a,b)=>a.localeCompare(b,'id'));
 const allTx=()=>[...D.pemasukan.map(x=>({...x,k:'in'})),...D.pengeluaran.map(x=>({...x,k:'out'})),...D.transfer.map(x=>({...x,k:'tf'}))]
@@ -52,31 +56,38 @@ function render(){$('#title').textContent={home:'Beranda',hist:'Riwayat',stat:'S
 function perBar(){const P=[['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini'],['custom','Kustom']];
  return `<div class="chips scroll">${P.map(p=>`<button class="chip ${st.per==p[0]?'on':''}" data-a="per" data-v="${p[0]}">${p[1]}</button>`).join('')}</div>`+
  (st.per=='custom'?`<div class="grid mb"><input type="date" id="cf" value="${st.from||today()}"><input type="date" id="ct" value="${st.to||today()}"></div>`:'')}
-function row(x){const tf=x.k=='tf';return `<div class="row" data-a="edit" data-k="${x.k}" data-id="${x.id}"><div class="ic ${x.k}">${tf?'⇄':x.k=='in'?'↓':'↑'}</div><div class="rm"><b>${tf?esc(x.dari)+' → '+esc(x.ke):esc(x.kategori)}</b><small>${tf?'':esc(x.rekening)+' · '}${fmtD(x.tanggal)}${x.catatan?' · '+esc(x.catatan):''}</small></div><div class="am ${x.k}">${x.k=='out'?'-':x.k=='in'?'+':''}${rp(x.nominal)}</div></div>`}
+function row(x,d){const tf=x.k=='tf',sub=[tf?'':x.rekening,d?shortD(x.tanggal):'',x.catatan].filter(Boolean).map(esc).join(' · ');
+ return `<div class="row" data-a="edit" data-k="${x.k}" data-id="${x.id}"><div class="ic ${x.k}">${I[x.k]}</div><div class="rm"><b>${tf?esc(x.dari)+' → '+esc(x.ke):esc(x.kategori)}</b><small>${sub||'&nbsp;'}</small></div><div class="am ${x.k}">${x.k=='out'?'−':x.k=='in'?'+':''}${rp(x.nominal)}</div></div>`}
 function home(){const [a,b]=range(),m=bal(),tot=Object.values(m).reduce((s,v)=>s+v,0);
  const o=inR(D.pengeluaran,a,b),inc=sum(inR(D.pemasukan,a,b)),exp=sum(o);
  const [pa,pb]=prevR(a,b),pe=sum(inR(D.pengeluaran,pa,pb)),pi=sum(inR(D.pemasukan,pa,pb));
- const days=Math.max(1,(dt(b<today()?b:today())-dt(a))/864e5+1),g=grp(o);
- const cmp=(x,y,l)=>y?`${l} <b style="display:inline;font-size:inherit">${x>=y?'naik':'turun'} ${Math.abs((x-y)/y*100).toFixed(0)}%</b> dibanding periode sebelumnya (${rp(y)})`:`${l}: belum ada pembanding periode sebelumnya`;
- const rec=allTx().slice(0,5);
+ const days=Math.max(1,(dt(b<today()?b:today())-dt(a))/864e5+1),g=grp(o),rec=allTx().slice(0,5);
+ const chg=(x,y,up)=>y?`<b class="${(x>=y)==up?'in':'out'}">${x>=y?'▲':'▼'} ${Math.abs((x-y)/y*100).toFixed(0)}%</b>`:'<b class="mu">–</b>';
  return perBar()+`<div class="card hero"><small>Total saldo semua rekening</small><b>${rp(tot)}</b><small>${D.rekening.length} rekening</small></div>
  <div class="grid mb"><div class="card"><small>Pemasukan</small><b class="in">${rp(inc)}</b></div><div class="card"><small>Pengeluaran</small><b class="out">${rp(exp)}</b></div></div>
  <div class="card"><small>Saldo bersih periode</small><b>${rp(inc-exp)}</b></div>
- <h3>Saldo per rekening</h3><div class="card">${D.rekening.length?D.rekening.map(r=>`<div class="row2"><span>${esc(r.nama)}</span><b style="margin:0;font-size:15px">${rp(m[r.nama])}</b></div>`).join(''):empty('Belum ada rekening','<button class="btn" data-a="goacc">Tambah rekening</button>')}</div>
- <h3>Insight</h3><div class="card ins"><p>🏆 Pengeluaran terbesar: ${g.length?`<b style="display:inline;font-size:inherit">${esc(g[0][0])}</b> (${rp(g[0][1])})`:'belum ada data'}</p>
- <p>📅 Rata-rata pengeluaran harian: <b style="display:inline;font-size:inherit">${rp(exp/days)}</b></p><p>📉 ${cmp(exp,pe,'Pengeluaran')}</p><p>📈 ${cmp(inc,pi,'Pemasukan')}</p></div>
- <h3>Transaksi terbaru</h3>${rec.length?rec.map(row).join(''):empty('Belum ada transaksi.<br>Tekan tombol + untuk mencatat.')}`}
+ <h3>Saldo per rekening</h3><div class="card">${D.rekening.length?D.rekening.map(r=>`<div class="row2"><span>${esc(r.nama)}</span><b>${rp(m[r.nama])}</b></div>`).join(''):empty('Belum ada rekening','<button class="btn" data-a="goacc">Tambah rekening</button>')}</div>
+ <h3>Insight</h3><div class="card">
+ <div class="row2"><span>Pengeluaran terbesar</span><b>${g.length?esc(g[0][0])+' · '+rp(g[0][1]):'–'}</b></div>
+ <div class="row2"><span>Rata-rata pengeluaran harian</span><b>${rp(exp/days)}</b></div>
+ <div class="row2"><span>Pengeluaran vs periode lalu<small>${rp(pe)}</small></span>${chg(exp,pe,false)}</div>
+ <div class="row2"><span>Pemasukan vs periode lalu<small>${rp(pi)}</small></span>${chg(inc,pi,true)}</div></div>
+ <h3>Transaksi terbaru</h3>${rec.length?`<div class="list">${rec.map(x=>row(x,1)).join('')}</div>`:empty('Belum ada transaksi.<br>Tekan tombol + untuk mencatat.')}`}
 function histList(){const q=st.q.toLowerCase();
  const l=allTx().filter(x=>(!st.fc||x.kategori==st.fc)&&(!st.ff||x.tanggal>=st.ff)&&(!st.ft||x.tanggal<=st.ft)&&(!q||[x.kategori,x.catatan,x.rekening,x.dari,x.ke,x.nominal,x.oleh].join(' ').toLowerCase().includes(q)));
- return l.length?l.slice(0,100).map(row).join('')+(l.length>100?'<small>Menampilkan 100 transaksi terbaru. Persempit filter untuk melihat lainnya.</small>':''):empty('Tidak ada transaksi yang cocok')}
+ if(!l.length)return empty('Tidak ada transaksi yang cocok');
+ let h='',last='';l.slice(0,100).forEach(x=>{if(x.tanggal!=last){if(last)h+='</div>';h+=`<div class="gh">${gl(x.tanggal)}</div><div class="list">`;last=x.tanggal}h+=row(x)});
+ return h+'</div>'+(l.length>100?'<small class="note">Menampilkan 100 transaksi terbaru. Persempit filter untuk melihat lainnya.</small>':'')}
 function hist(){const all=[...new Set(D.kategori.map(c=>String(c.nama)))].sort((a,b)=>a.localeCompare(b,'id'));
- return `<input id="q" class="mb" placeholder="🔍 Cari catatan, kategori, rekening" value="${esc(st.q)}"><select id="fc" class="mb"><option value="">Semua kategori</option>${all.map(c=>`<option ${st.fc==c?'selected':''}>${esc(c)}</option>`).join('')}</select>
- <div class="grid mb"><input type="date" id="ff" value="${st.ff}"><input type="date" id="ft" value="${st.ft}"></div><div id="list">${histList()}</div>`}
+ return `<input id="q" class="mb" placeholder="Cari catatan, kategori, rekening" value="${esc(st.q)}"><select id="fc" class="mb"><option value="">Semua kategori</option>${all.map(c=>`<option ${st.fc==c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+ <div class="grid mb"><div><label>Dari tanggal</label><input type="date" id="ff" value="${st.ff}"></div><div><label>Sampai tanggal</label><input type="date" id="ft" value="${st.ft}"></div></div>
+ <button class="lnk mb" data-a="reset">Reset filter</button><div id="list">${histList()}</div>`}
 function trend(){let keys=[],lab=[];
  if(st.trend=='harian'){let [a,b]=range();if(b>today())b=today();if(b<a)b=a;let s=addD(b,-30);if(s<a)s=a;for(let d=s;d<=b;d=addD(d,1)){keys.push(d);lab.push(d.slice(8))}}
  else{const n=new Date();for(let i=5;i>=0;i--){const d=new Date(n.getFullYear(),n.getMonth()-i,1);keys.push(iso(d).slice(0,7));lab.push(d.toLocaleDateString('id-ID',{month:'short'}))}}
  const L=st.trend=='harian'?10:7,pick=a=>keys.map(k=>sum(a.filter(x=>x.tanggal.slice(0,L)==k)));
  const I=pick(D.pemasukan),O=pick(D.pengeluaran),mx=Math.max(1,...I,...O),w=320/keys.length,bw=Math.min(14,w*.34);
+ if(!I.some(Boolean)&&!O.some(Boolean))return empty('Belum ada data untuk tren');
  return `<svg viewBox="0 0 320 130" width="100%">${keys.map((k,i)=>{const x=i*w+w/2,hi=I[i]/mx*100,ho=O[i]/mx*100;
  return `<rect x="${x-bw-1}" y="${108-hi}" width="${bw}" height="${hi}" rx="3" fill="#10b981"/><rect x="${x+1}" y="${108-ho}" width="${bw}" height="${ho}" rx="3" fill="#f43f5e"/>`+(i%Math.ceil(keys.length/9)==0?`<text x="${x}" y="124">${lab[i]}</text>`:'')}).join('')}</svg>`}
 function stat(){const [a,b]=range(),[pa,pb]=prevR(a,b),o=inR(D.pengeluaran,a,b),g=grp(o),tot=sum(o);
@@ -84,11 +95,13 @@ function stat(){const [a,b]=range(),[pa,pb]=prevR(a,b),o=inR(D.pengeluaran,a,b),
  return perBar()+`<div class="card"><h3 style="margin-top:0">Pengeluaran per kategori</h3>${g.length?g.map(([k,x])=>`<div class="bar"><div><span>${esc(k)}</span><span>${rp(x)} · ${(x/tot*100).toFixed(0)}%</span></div><i style="width:${x/g[0][1]*100}%"></i></div>`).join(''):empty('Belum ada pengeluaran di periode ini')}</div>
  <div class="card"><h3 style="margin-top:0">Tren</h3><div class="chips">${['harian','bulanan'].map(t=>`<button class="chip ${st.trend==t?'on':''}" data-a="trend" data-v="${t}">${t=='harian'?'Harian':'Bulanan'}</button>`).join('')}</div>${trend()}<div class="leg"><span class="in">■ Pemasukan</span><span class="out">■ Pengeluaran</span></div></div>
  <div class="card"><h3 style="margin-top:0">Pemasukan vs pengeluaran</h3>${v.map(x=>`<div class="bar ${x[2]}"><div><span>${x[0]}</span><span>${rp(x[1])}</span></div><i style="width:${x[1]/mx*100}%"></i></div>`).join('')}</div>`}
-function acc(){const m=bal(),tot=Object.values(m).reduce((s,v)=>s+v,0),T=['auto','light','dark'],TL={auto:'Otomatis',light:'Terang',dark:'Gelap'};
+function acc(){const m=bal(),tot=Object.values(m).reduce((s,v)=>s+v,0),TL={auto:'Otomatis',light:'Terang',dark:'Gelap'};
  return `<div class="card hero"><small>Total semua rekening</small><b>${rp(tot)}</b></div>`+
- (D.rekening.length?D.rekening.map(a=>`<div class="row" data-a="editacc" data-id="${a.id}"><div class="ic">🏦</div><div class="rm"><b>${esc(a.nama)}</b><small>Saldo awal ${rp(a.saldoawal||0)} · ketuk untuk ubah</small></div><div class="am">${rp(m[a.nama])}</div></div>`).join(''):empty('Belum ada rekening.<br>Tambahkan BCA, Mandiri, Tunai, dll.'))+
- `<button class="btn" data-a="addacc">+ Tambah rekening</button><button class="btn ghost" data-a="tf">⇄ Transfer antar rekening</button>
- <h3>Pengaturan</h3><button class="btn ghost" data-a="name">Nama pengguna: ${esc(NAME||'-')}</button><button class="btn ghost" data-a="theme">Tema: ${TL[LS.theme||'auto']}</button><button class="btn ghost" data-a="logout">Keluar</button>`}
+ (D.rekening.length?`<div class="list">${D.rekening.map(a=>`<div class="row" data-a="editacc" data-id="${a.id}"><div class="ic">${I.bank}</div><div class="rm"><b>${esc(a.nama)}</b></div><div class="am">${rp(m[a.nama])}</div></div>`).join('')}</div>`:empty('Belum ada rekening.<br>Tambahkan BCA, Mandiri, Tunai, dll.'))+
+ `<button class="btn" data-a="addacc">+ Tambah rekening</button><button class="btn ghost" data-a="tf">Transfer antar rekening</button>
+ <h3>Pengaturan</h3><div class="list"><div class="row" data-a="name"><div class="ic">${sv('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>')}</div><div class="rm"><b>Nama pengguna</b></div><div class="am mu">${esc(NAME||'-')}</div></div>
+ <div class="row" data-a="theme"><div class="ic">${sv('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>')}</div><div class="rm"><b>Tema</b></div><div class="am mu">${TL[LS.theme||'auto']}</div></div>
+ <div class="row" data-a="logout"><div class="ic out">${sv('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>')}</div><div class="rm"><b class="out">Keluar</b></div><div></div></div></div>`}
 
 /* ---------- Form transaksi ---------- */
 function openTx(k,id){const names=D.rekening.map(a=>a.nama),def=names.includes(LS.lastAcc)?LS.lastAcc:names[0]||'';
@@ -138,7 +151,7 @@ const mq=matchMedia('(prefers-color-scheme:dark)');
 function theme(){const t=LS.theme||'auto';document.documentElement.dataset.theme=t=='auto'?(mq.matches?'dark':'light'):t;
  document.querySelector('meta[name=theme-color]').content=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()}
 mq.onchange=theme;
-const A={tab:d=>{st.tab=d.v;render();scrollTo(0,0)},per:d=>{st.per=d.v;render()},trend:d=>{st.trend=d.v;render()},
+const A={reset:()=>{st.q=st.fc=st.ff=st.ft='';render()},tab:d=>{st.tab=d.v;render();scrollTo(0,0)},per:d=>{st.per=d.v;render()},trend:d=>{st.trend=d.v;render()},
  fab:()=>openTx('out'),tf:()=>openTx('tf'),edit:d=>openTx(d.k,d.id),close,save:saveTx,saveacc:saveAcc,delacc:delAcc,
  type:d=>{readF();f.k=d.v;f.kategori='';drawTx()},
  pick:(d,el)=>{f[d.f]=d.v;el.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on')},
