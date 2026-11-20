@@ -6,6 +6,7 @@ const $=s=>document.querySelector(s),LS=localStorage;
 let PIN=LS.pin||'',NAME=LS.name||'',busy=0,f={};
 let D=JSON.parse(LS.cache||'null')||{pemasukan:[],pengeluaran:[],transfer:[],rekening:[],kategori:[]};
 D={tagihan:[],target:[],...D};
+let Q=JSON.parse(LS.queue||'[]');applyQ();
 const st={tab:'home',per:'bulan',from:'',to:'',trend:'harian',sub:'rek',q:'',fc:'',ff:'',ft:''};
 const iso=d=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
 const today=()=>iso(new Date()),dt=s=>new Date(s+'T00:00');
@@ -41,13 +42,17 @@ function prevR(a,b){if(st.per=='bulan'){const d=dt(a);return[iso(new Date(d.getF
 
 /* ---------- API ---------- */
 const setSync=m=>$('#sync').textContent=m;
-async function api(action,data){busy++;setSync(action=='getAll'?'Menyinkronkan…':'Menyimpan…');
- try{const r=await fetch(API_URL,{method:'POST',body:JSON.stringify({pin:PIN,action,data})});
-  const j=await r.json();if(!j.ok)throw new Error(j.error);
-  D={tagihan:[],target:[],...j.data};LS.cache=JSON.stringify(D);setSync('');return D}
- catch(e){setSync(e.message=='PIN salah'?'':'Offline');throw e}finally{busy--}}
+async function api(action,data){busy++;syncLabel(action=='getAll'?'Menyinkronkan…':'Menyimpan…');
+ const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),30000),fail=(m,r)=>Object.assign(new Error(m),{retry:r});
+ try{let txt;
+  try{const r=await fetch(API_URL,{method:'POST',body:JSON.stringify({pin:PIN,action,data}),signal:ctl.signal});txt=await r.text()}catch(e){throw fail(offMsg(),1)}
+  let j;try{j=JSON.parse(txt)}catch(e){throw fail('Server sedang sibuk. Coba lagi sebentar lagi.',1)}
+  if(!j.ok)throw fail(j.error,!!j.busy);
+  D={tagihan:[],target:[],...j.data};LS.cache=JSON.stringify(D);applyQ();syncLabel();return D
+ }catch(e){syncLabel(e.retry?(navigator.onLine?'Gagal sinkron':'Offline'):undefined);throw e}
+ finally{clearTimeout(tm);busy--}}
 async function load(){if(busy||API_URL.startsWith('GANTI'))return;
- try{await api('getAll');softRender()}
+ try{await flush();await api('getAll');softRender()}
  catch(e){if(e.message=='PIN salah'){PIN='';delete LS.pin;showLogin();toast('PIN salah, coba lagi','err')}else if(!LS.cache)toast('Gagal memuat: '+e.message,'err')}}
 const sheetOpen=()=>$('#sheet').classList.contains('show');
 function softRender(){if(sheetOpen()||document.activeElement.matches('input,select'))return;render()}
@@ -59,8 +64,8 @@ function render(){$('#eye').innerHTML=I[HID?'eyeoff':'eye'];$('#title').textCont
  $('#app').innerHTML=(!LS.cache&&!D.rekening.length&&PIN)?'<div class="sk"></div><div class="sk"></div><div class="sk"></div>':views[st.tab]()}
 function perBar(){const P=[['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini'],['custom','Kustom']];
  return `<div class="chips scroll">${P.map(p=>`<button class="chip ${st.per==p[0]?'on':''}" data-a="per" data-v="${p[0]}">${p[1]}</button>`).join('')}</div>`+
- (st.per=='custom'?`<div class="grid mb"><input type="date" id="cf" value="${st.from||today()}"><input type="date" id="ct" value="${st.to||today()}"></div>`:'')}
-function row(x,d){const tf=x.k=='tf',sub=[tf?'':x.rekening,d?shortD(x.tanggal):'',x.catatan].filter(Boolean).map(esc).join(' · ');
+ (st.per=='custom'?`<div class="grid mb">${dateField('cf',st.from||today())}${dateField('ct',st.to||today())}</div>`:'')}
+function row(x,d){const tf=x.k=='tf',sub=[x.pending?'belum terkirim':'',tf?'':x.rekening,d?shortD(x.tanggal):'',x.catatan].filter(Boolean).map(esc).join(' · ');
  return `<div class="row" data-a="edit" data-k="${x.k}" data-id="${x.id}"><div class="ic ${x.k}">${I[x.k]}</div><div class="rm"><b>${tf?esc(x.dari)+' → '+esc(x.ke):esc(x.kategori)}</b><small>${sub||'&nbsp;'}</small></div><div class="am ${x.k}">${x.k=='out'?'−':x.k=='in'?'+':''}${rp(x.nominal)}</div></div>`}
 function home(){const [a,b]=range(),m=bal(),tot=Object.values(m).reduce((s,v)=>s+v,0);
  const o=inR(D.pengeluaran,a,b),inc=sum(inR(D.pemasukan,a,b)),exp=sum(o);
@@ -70,7 +75,6 @@ function home(){const [a,b]=range(),m=bal(),tot=Object.values(m).reduce((s,v)=>s
  return perBar()+banner()+`<div class="card hero"><small>Total saldo semua rekening</small><b>${rp(tot)}</b><small>${D.rekening.length} rekening</small></div>
  <div class="grid mb"><div class="card"><small>Pemasukan</small><b class="in">${rp(inc)}</b></div><div class="card"><small>Pengeluaran</small><b class="out">${rp(exp)}</b></div></div>
  <div class="card"><small>Saldo bersih periode</small><b>${rp(inc-exp)}</b></div>
- <h3>Saldo per rekening</h3><div class="card">${D.rekening.length?D.rekening.map(r=>`<div class="row2"><span>${esc(r.nama)}</span><b>${rp(m[r.nama])}</b></div>`).join(''):empty('Belum ada rekening','<button class="btn" data-a="goacc">Tambah rekening</button>')}</div>
  <h3>Insight</h3><div class="card">
  <div class="row2"><span>Pengeluaran terbesar</span><b>${g.length?esc(g[0][0])+' · '+rp(g[0][1]):'–'}</b></div>
  <div class="row2"><span>Rata-rata pengeluaran harian</span><b>${rp(exp/days)}</b></div>
@@ -83,8 +87,8 @@ function histList(){const q=st.q.toLowerCase();
  let h='',last='';l.slice(0,100).forEach(x=>{if(x.tanggal!=last){if(last)h+='</div>';h+=`<div class="gh">${gl(x.tanggal)}</div><div class="list">`;last=x.tanggal}h+=row(x)});
  return h+'</div>'+(l.length>100?'<small class="note">Menampilkan 100 transaksi terbaru. Persempit filter untuk melihat lainnya.</small>':'')}
 function hist(){const all=[...new Set(D.kategori.map(c=>String(c.nama)))].sort((a,b)=>a.localeCompare(b,'id'));
- return `<input id="q" class="mb" placeholder="Cari catatan, kategori, rekening" value="${esc(st.q)}"><select id="fc" class="mb"><option value="">Semua kategori</option>${all.map(c=>`<option ${st.fc==c?'selected':''}>${esc(c)}</option>`).join('')}</select>
- <div class="grid mb"><div><label>Dari tanggal</label><input type="date" id="ff" value="${st.ff}"></div><div><label>Sampai tanggal</label><input type="date" id="ft" value="${st.ft}"></div></div>
+ return `<input id="q" class="mb" placeholder="Cari catatan, kategori, rekening" value="${esc(st.q)}"><button type="button" class="dpb sel mb" data-a="pickcat">${esc(st.fc||'Semua kategori')}</button>
+ <div class="grid mb"><div><label>Dari tanggal</label>${dateField('ff',st.ff,1)}</div><div><label>Sampai tanggal</label>${dateField('ft',st.ft,1)}</div></div>
  <button class="lnk mb" data-a="reset">Reset filter</button><div id="list">${histList()}</div>`}
 function trend(){let keys=[],lab=[];
  if(st.trend=='harian'){let [a,b]=range();if(b>today())b=today();if(b<a)b=a;let s=addD(b,-30);if(s<a)s=a;for(let d=s;d<=b;d=addD(d,1)){keys.push(d);lab.push(d.slice(8))}}
@@ -94,11 +98,9 @@ function trend(){let keys=[],lab=[];
  if(!I.some(Boolean)&&!O.some(Boolean))return empty('Belum ada data untuk tren');
  return `<svg viewBox="0 0 320 130" width="100%">${keys.map((k,i)=>{const x=i*w+w/2,hi=I[i]/mx*100,ho=O[i]/mx*100;
  return `<rect x="${x-bw-1}" y="${108-hi}" width="${bw}" height="${hi}" rx="3" fill="#10b981"/><rect x="${x+1}" y="${108-ho}" width="${bw}" height="${ho}" rx="3" fill="#f43f5e"/>`+(i%Math.ceil(keys.length/9)==0?`<text x="${x}" y="124">${lab[i]}</text>`:'')}).join('')}</svg>`}
-function stat(){const [a,b]=range(),[pa,pb]=prevR(a,b),o=inR(D.pengeluaran,a,b),g=grp(o),tot=sum(o);
- const v=[['Pemasukan ini',sum(inR(D.pemasukan,a,b)),'in'],['Pengeluaran ini',tot,'out'],['Pemasukan sebelumnya',sum(inR(D.pemasukan,pa,pb)),'in'],['Pengeluaran sebelumnya',sum(inR(D.pengeluaran,pa,pb)),'out']],mx=Math.max(1,...v.map(x=>x[1]));
+function stat(){const [a,b]=range(),o=inR(D.pengeluaran,a,b),g=grp(o),tot=sum(o);
  return perBar()+`<div class="card"><h3 style="margin-top:0">Pengeluaran per kategori</h3>${g.length?g.map(([k,x])=>`<div class="bar"><div><span>${esc(k)}</span><span>${rp(x)} · ${(x/tot*100).toFixed(0)}%</span></div><i style="width:${x/g[0][1]*100}%"></i></div>`).join(''):empty('Belum ada pengeluaran di periode ini')}</div>
- <div class="card"><h3 style="margin-top:0">Tren</h3><div class="chips">${['harian','bulanan'].map(t=>`<button class="chip ${st.trend==t?'on':''}" data-a="trend" data-v="${t}">${t=='harian'?'Harian':'Bulanan'}</button>`).join('')}</div>${trend()}<div class="leg"><span class="in">■ Pemasukan</span><span class="out">■ Pengeluaran</span></div></div>
- <div class="card"><h3 style="margin-top:0">Pemasukan vs pengeluaran</h3>${v.map(x=>`<div class="bar ${x[2]}"><div><span>${x[0]}</span><span>${rp(x[1])}</span></div><i style="width:${x[1]/mx*100}%"></i></div>`).join('')}</div>`}
+ <div class="card"><h3 style="margin-top:0">Tren</h3><div class="chips">${['harian','bulanan'].map(t=>`<button class="chip ${st.trend==t?'on':''}" data-a="trend" data-v="${t}">${t=='harian'?'Harian':'Bulanan'}</button>`).join('')}</div>${trend()}<div class="leg"><span class="in">■ Pemasukan</span><span class="out">■ Pengeluaran</span></div></div>`}
 function acc(){return subBar()+(st.sub=='tag'?tagView():st.sub=='tgt'?tgtView():accRek())}
 function accRek(){const m=bal(),tot=Object.values(m).reduce((s,v)=>s+v,0),TL={auto:'Otomatis',light:'Terang',dark:'Gelap'};
  return `<div class="card hero"><small>Total semua rekening</small><b>${rp(tot)}</b></div>`+
@@ -110,7 +112,7 @@ function accRek(){const m=bal(),tot=Object.values(m).reduce((s,v)=>s+v,0),TL={au
 
 /* ---------- Form transaksi ---------- */
 function openTx(k,id){const names=D.rekening.map(a=>a.nama),def=names.includes(LS.lastAcc)?LS.lastAcc:names[0]||'';
- if(id){const x=(k=='in'?D.pemasukan:k=='out'?D.pengeluaran:D.transfer).find(r=>String(r.id)==String(id));if(!x)return;f={...x,k,nominal:Number(x.nominal).toLocaleString('id-ID'),edit:1}}
+ if(id){const x=(k=='in'?D.pemasukan:k=='out'?D.pengeluaran:D.transfer).find(r=>String(r.id)==String(id));if(!x)return;if(x.pending)return toast('Transaksi ini belum terkirim. Tunggu sampai tersambung.','err');f={...x,k,nominal:Number(x.nominal).toLocaleString('id-ID'),edit:1}}
  else f={k,nominal:'',tanggal:today(),catatan:'',rekening:def,dari:def,ke:'',kategori:''};
  drawTx();$('#sheet').classList.add('show')}
 function drawTx(){const k=f.k,kt=k=='tf'?[]:cats(k),names=D.rekening.map(a=>a.nama);if(f.kategori&&k!='tf'&&!kt.includes(f.kategori))kt.push(f.kategori);
@@ -120,13 +122,13 @@ function drawTx(){const k=f.k,kt=k=='tf'?[]:cats(k),names=D.rekening.map(a=>a.na
  <label>Nominal (Rp)</label><input id="nom" class="big" inputmode="numeric" placeholder="0" value="${f.nominal}" autocomplete="off">
  ${names.length?'':`<div class="warn">Belum ada rekening. <button class="lnk" data-a="goacc">Tambah rekening dulu</button></div>`}
  ${k=='tf'?`<label>Dari rekening</label>${ch('dari',names,f.dari)}<label>Ke rekening</label>${ch('ke',names,f.ke)}`:`<label>Rekening</label>${ch('rekening',names,f.rekening)}<label>Kategori</label>${ch('kategori',kt,f.kategori)}`}
- <label>Tanggal</label><input type="date" id="tgl" value="${f.tanggal}"><label>Catatan (opsional)</label><input id="cat" maxlength="120" value="${esc(f.catatan)}" placeholder="mis. makan siang">
+ <label>Tanggal</label>${dateField('tgl',f.tanggal)}<label>Catatan (opsional)</label><input id="cat" maxlength="120" value="${esc(f.catatan)}" placeholder="mis. makan siang">
  <button class="btn" id="sv" data-a="save">Simpan</button>${f.edit?'<button class="btn dng" data-a="del">Hapus transaksi</button>':''}</div>`;
  setTimeout(()=>{if(!f.edit&&!f.nominal&&$('#nom'))$('#nom').focus()},60)}
 const readF=()=>{f.nominal=$('#nom').value;f.tanggal=$('#tgl').value;f.catatan=$('#cat').value};
 const close=()=>$('#sheet').classList.remove('show');
 async function run(fn,ok){const bs=document.querySelectorAll('.pane .btn');bs.forEach(b=>b.disabled=true);const sv=$('#sv');if(sv)sv.textContent='Menyimpan…';
- try{await fn();close();toast(ok,'ok');render()}catch(e){toast('Gagal: '+e.message,'err');bs.forEach(b=>b.disabled=false);if(sv)sv.textContent='Simpan'}}
+ try{await fn();close();toast(ok,'ok');render()}catch(e){if(e.queued){close();toast('Tersimpan di HP, akan dikirim otomatis saat tersambung','ok');render();return}toast('Gagal: '+e.message,'err');bs.forEach(b=>b.disabled=false);if(sv)sv.textContent='Simpan'}}
 function saveTx(){readF();const n=parseInt(String(f.nominal).replace(/\D/g,''),10)||0,bad=m=>toast(m,'err');
  if(n<=0){const e=$('#nom');e.classList.add('shake');setTimeout(()=>e.classList.remove('shake'),400);return bad('Nominal wajib diisi dan harus lebih dari 0')}
  if(f.k=='tf'){if(!f.dari||!f.ke)return bad('Pilih rekening asal dan tujuan');if(f.dari==f.ke)return bad('Rekening asal dan tujuan harus berbeda')}
@@ -135,7 +137,8 @@ function saveTx(){readF();const n=parseInt(String(f.nominal).replace(/\D/g,''),1
  const row={id:f.id,tanggal:f.tanggal,nominal:n,catatan:f.catatan.trim(),oleh:f.oleh||NAME};
  Object.assign(row,f.k=='tf'?{dari:f.dari,ke:f.ke}:{rekening:f.rekening,kategori:f.kategori});
  if(f.k!='tf')LS.lastAcc=f.rekening;
- run(async()=>{await api('save',{t:f.k,row});if(f.bill)await api('payBill',{id:f.bill,periode:ym()})},f.edit?'Perubahan disimpan':'Transaksi tersimpan')}
+ if(!f.edit){f.id=f.id||uid();row.id=f.id;row.neu=1}
+ run(async()=>{try{await api('save',{t:f.k,row});if(f.bill)await api('payBill',{id:f.bill,periode:ym()})}catch(e){if(!e.retry||f.edit)throw e;Q.push({t:f.k,row,bill:f.bill,per:ym()});saveQ();applyQ();syncLabel();throw{queued:1}}},f.edit?'Perubahan disimpan':'Transaksi tersimpan')}
 /* ---------- Form rekening ---------- */
 function openAcc(id){const a=D.rekening.find(r=>String(r.id)==String(id))||{};
  f={id:a.id,nama:a.nama||'',sa:a.saldoawal?Number(a.saldoawal).toLocaleString('id-ID'):''};
@@ -147,7 +150,7 @@ function saveAcc(){const nama=$('#an').value.trim();if(!nama)return toast('Nama 
  run(()=>api('saveAcc',{id:f.id,nama,saldoawal:parseInt($('#as').value.replace(/\D/g,''),10)||0}),'Rekening disimpan')}
 function delAcc(){const n=f.nama,u=D.pemasukan.concat(D.pengeluaran).filter(x=>x.rekening==n).length+D.transfer.filter(x=>x.dari==n||x.ke==n).length;
  if(u)return toast(`Tidak bisa dihapus: sudah ada ${u} transaksi di rekening ini`,'err');
- if(confirm(`Hapus rekening "${n}"?`))run(()=>api('delAcc',{id:f.id}),'Rekening dihapus')}
+ ask('Hapus rekening?',`Rekening "${esc(n)}" akan dihapus.`,'Hapus',1).then(ok=>ok&&run(()=>api('delAcc',{id:f.id}),'Rekening dihapus'))}
 
 /* ---------- Tagihan, Target, Ekspor ---------- */
 I.bill=sv('<path d="M6 2h12v20l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"/>');
@@ -182,12 +185,12 @@ function submitBill(){const nama=$('#bn').value.trim(),j=parseInt($('#bj').value
 function openPay(id){const b=D.tagihan.find(r=>String(r.id)==String(id));if(!b)return;openTx('out');Object.assign(f,{kategori:'Tagihan',catatan:b.nama,bill:b.id,nominal:fm(b.nominal)});drawTx()}
 function openGoal(id){const g=D.target.find(r=>String(r.id)==String(id))||{};f={id:g.id};
  pane((g.id?'Ubah':'Tambah')+' target',`<label>Nama target</label><input id="gn" maxlength="30" value="${esc(g.nama||'')}" placeholder="mis. Dana darurat"><label>Nominal target (Rp)</label><input id="gt" class="fmt" inputmode="numeric" placeholder="0" value="${fm(g.target)}">
- <label>Dana terkumpul (Rp)</label><input id="gk" class="fmt" inputmode="numeric" placeholder="0" value="${fm(g.terkumpul)}"><label>Tenggat (opsional)</label><input type="date" id="gd" value="${g.tenggat||''}">
+ <label>Dana terkumpul (Rp)</label><input id="gk" class="fmt" inputmode="numeric" placeholder="0" value="${fm(g.terkumpul)}"><label>Tenggat (opsional)</label>${dateField('gd',g.tenggat,1)}
  <button class="btn" id="sv" data-a="savegoal">Simpan</button>${g.id?'<button class="btn dng" data-a="delgoal">Hapus target</button>':''}`)}
 function submitGoal(){const n=$('#gn').value.trim(),num=id=>parseInt($('#'+id).value.replace(/\D/g,''),10)||0;
  if(!n)return toast('Nama target wajib diisi','err');if(num('gt')<=0)return toast('Nominal target harus lebih dari 0','err');
  run(()=>api('saveGoal',{id:f.id,nama:n,target:num('gt'),terkumpul:num('gk'),tenggat:$('#gd').value}),'Target disimpan')}
-function openExp(){const t=today(),d=dt(t);pane('Ekspor laporan',`<label>Dari tanggal</label><input type="date" id="ea" value="${iso(new Date(d.getFullYear(),d.getMonth(),1))}"><label>Sampai tanggal</label><input type="date" id="eb" value="${t}">
+function openExp(){const t=today(),d=dt(t);pane('Ekspor laporan',`<label>Dari tanggal</label>${dateField('ea',iso(new Date(d.getFullYear(),d.getMonth(),1)))}<label>Sampai tanggal</label>${dateField('eb',t)}
  <button class="btn" data-a="csv">Unduh CSV (Excel / Sheets)</button><button class="btn ghost" data-a="pdf">Laporan PDF (cetak / simpan)</button>`)}
 const NM={in:'Pemasukan',out:'Pengeluaran',tf:'Transfer'};
 function exportCSV(a,b){if(!a||!b)return toast('Isi rentang tanggal','err');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
@@ -200,6 +203,36 @@ function exportPDF(a,b){if(!a||!b)return toast('Isi rentang tanggal','err');cons
  <h3>Pengeluaran per kategori</h3><table>${g.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="r">${rpx(v)}</td></tr>`).join('')||'<tr><td>Tidak ada data</td></tr>'}</table>
  <h3>Daftar transaksi (${rows.length})</h3><table><tr><th>Tanggal</th><th>Jenis</th><th>Rekening</th><th>Kategori</th><th class="r">Nominal</th></tr>${rows.slice().reverse().map(x=>`<tr><td>${x.tanggal}</td><td>${NM[x.k]}</td><td>${esc(x.k=='tf'?x.dari+' → '+x.ke:x.rekening)}</td><td>${esc(x.kategori||'')}${x.catatan?'<br><small>'+esc(x.catatan)+'</small>':''}</td><td class="r">${rpx(x.nominal)}</td></tr>`).join('')}</table><script>setTimeout(()=>print(),400)<\/script>`);w.document.close()}
 
+/* ---------- Antrean offline, dialog, kalender, pilihan ---------- */
+const uid=()=>Math.random().toString(36).slice(2,10);
+const saveQ=()=>{LS.queue=JSON.stringify(Q)};
+const offMsg=()=>navigator.onLine?'Server sedang sibuk atau koneksi lambat. Coba lagi sebentar lagi.':'Tidak ada koneksi internet.';
+function syncLabel(m){$('#sync').textContent=m!==undefined?m:(Q.length?`${Q.length} menunggu kirim`:'')}
+function applyQ(){Q.forEach(q=>{const a=q.t=='in'?D.pemasukan:q.t=='out'?D.pengeluaran:D.transfer;if(!a.some(x=>String(x.id)==String(q.row.id)))a.push({...q.row,pending:true,dibuat:new Date().toISOString()})})}
+async function flush(){if(!Q.length||busy||!navigator.onLine)return;
+ while(Q.length){const q=Q[0];
+  try{await api('save',{t:q.t,row:q.row});if(q.bill)await api('payBill',{id:q.bill,periode:q.per})}
+  catch(e){if(e.retry||e.message=='PIN salah')break;toast('Transaksi offline ditolak server: '+e.message,'err')}
+  Q.shift();saveQ()}
+ syncLabel()}
+let OVR=null,OVP=null,PL=[],DP=null;
+function dlg(o){return new Promise(res=>{OVR=res;
+ $('#ov').innerHTML=`<div class="back" data-a="ovx"></div><div class="pane dpane"><h2>${o.t}</h2>${o.m?`<p class="dm">${o.m}</p>`:''}${o.input?`<input id="dli" class="${o.num?'fmt':''}" ${o.num?'inputmode="numeric"':''} value="${esc(o.val||'')}" placeholder="${esc(o.ph||'')}">`:''}<div class="dbt"><button class="btn ghost" data-a="ovx">Batal</button><button class="btn ${o.danger?'dng':''}" data-a="ovok">${o.ok||'OK'}</button></div></div>`;
+ $('#ov').classList.add('show');if(o.input)setTimeout(()=>$('#dli').focus(),60)})}
+const ask=(t,m,ok,danger)=>dlg({t,m,ok,danger}).then(v=>!!v);
+function ovDone(v){$('#ov').classList.remove('show');const r=OVR;OVR=null;if(r)r(v)}
+function openPick(title,items,cur,cb){OVP=cb;PL=items;
+ $('#ov').innerHTML=`<div class="back" data-a="ovx"></div><div class="pane"><div class="ph"><h2>${title}</h2><button class="x" data-a="ovx">✕</button></div>${items.map((it,i)=>`<div class="opt ${it[0]==cur?'on':''}" data-a="ovpick" data-i="${i}"><span>${esc(it[1])}</span>${it[0]==cur?sv('<path d="M5 12l5 5 9-10"/>'):''}</div>`).join('')}</div>`;$('#ov').classList.add('show')}
+const dateField=(id,v,clr)=>`<input type="hidden" id="${id}" value="${v||''}"><button type="button" class="dpb ${v?'':'ph'}" data-a="pickdate" data-t="${id}" ${clr?'data-c="1"':''}>${v?fmtD(v):'Pilih tanggal'}</button>`;
+function openDP(id,clr){const d=dt($('#'+id).value||today());DP={id,y:d.getFullYear(),m:d.getMonth(),clr};drawDP();$('#ov').classList.add('show')}
+function drawDP(){const{y,m,id,clr}=DP,sel=$('#'+id).value,t=today(),first=(new Date(y,m,1).getDay()+6)%7,n=new Date(y,m+1,0).getDate();let c='<i></i>'.repeat(first);
+ for(let d=1;d<=n;d++){const s=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;c+=`<button type="button" class="${s==sel?'on':''} ${s==t?'td':''}" data-a="dpset" data-v="${s}">${d}</button>`}
+ $('#ov').innerHTML=`<div class="back" data-a="ovx"></div><div class="pane dpane"><div class="dph"><button class="x" data-a="dpnav" data-v="-1">‹</button><b>${new Date(y,m,1).toLocaleDateString('id-ID',{month:'long',year:'numeric'})}</b><button class="x" data-a="dpnav" data-v="1">›</button></div>
+ <div class="dpg wd">${['Sen','Sel','Rab','Kam','Jum','Sab','Min'].map(w=>`<span>${w}</span>`).join('')}</div><div class="dpg">${c}</div>
+ <div class="dpf"><button class="chip" data-a="dpset" data-v="${t}">Hari ini</button>${clr?'<button class="chip" data-a="dpset" data-v="">Hapus</button>':''}<button class="chip" data-a="ovx">Tutup</button></div></div>`}
+function setDate(v){const el=$('#'+DP.id),b=document.querySelector(`[data-t="${DP.id}"]`);el.value=v;if(b){b.textContent=v?fmtD(v):'Pilih tanggal';b.classList.toggle('ph',!v)}
+ $('#ov').classList.remove('show');el.dispatchEvent(new Event('change',{bubbles:true}))}
+
 /* ---------- Event ---------- */
 function toast(m,t){const e=$('#toast');e.textContent=(t=='ok'?'✓ ':'⚠ ')+m;e.className='show '+t;clearTimeout(toast.t);toast.t=setTimeout(()=>e.className='',3000)}
 const showLogin=()=>$('#login').classList.remove('hide');
@@ -211,21 +244,24 @@ const A={eye:()=>{HID=!HID;LS.hide=HID?'1':'0';render()},reset:()=>{st.q=st.fc=s
  fab:()=>openTx('out'),tf:()=>openTx('tf'),edit:d=>openTx(d.k,d.id),close,save:saveTx,saveacc:saveAcc,delacc:delAcc,
  type:d=>{readF();f.k=d.v;f.kategori='';drawTx()},
  pick:(d,el)=>{f[d.f]=d.v;el.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on')},
- del:()=>confirm('Hapus transaksi ini? Tindakan ini tidak bisa dibatalkan.')&&run(()=>api('del',{t:f.k,id:f.id}),'Transaksi dihapus'),
+ del:()=>ask('Hapus transaksi?','Tindakan ini tidak bisa dibatalkan.','Hapus',1).then(ok=>ok&&run(()=>api('del',{t:f.k,id:f.id}),'Transaksi dihapus')),
  addacc:()=>openAcc(),editacc:d=>openAcc(d.id),goacc:()=>{close();A.tab({v:'acc'})},
  theme:()=>{const T=['auto','light','dark'];LS.theme=T[(T.indexOf(LS.theme||'auto')+1)%3];theme();render()},
- name:()=>{const n=prompt('Nama kamu (tampil di kolom "Oleh")',NAME);if(n!==null){NAME=n.trim();LS.name=NAME;render()}},
- logout:()=>{if(confirm('Keluar dari aplikasi di HP ini?')){delete LS.pin;delete LS.cache;location.reload()}},
+ name:()=>dlg({t:'Nama pengguna',m:'Tampil di kolom "Oleh" pada setiap transaksi.',input:1,val:NAME,ok:'Simpan'}).then(n=>{if(n!==null&&n!==true){NAME=String(n).trim();LS.name=NAME;render()}}),
+ logout:()=>ask('Keluar dari aplikasi?',Q.length?`Ada ${Q.length} transaksi yang belum terkirim dan akan hilang.`:'Kamu perlu memasukkan PIN lagi untuk masuk.','Keluar',1).then(ok=>{if(ok){delete LS.pin;delete LS.cache;delete LS.queue;location.reload()}}),
  login:()=>{const p=$('#pin').value.trim();if(!p)return toast('PIN wajib diisi','err');if(API_URL.startsWith('GANTI'))return toast('URL Web App belum diisi di app.js','err');
   PIN=p;NAME=$('#nm').value.trim();LS.pin=PIN;LS.name=NAME;$('#login').classList.add('hide');render();load()}};
 Object.assign(A,{sub:d=>{st.sub=d.v;render()},addbill:()=>openBill(),editbill:d=>openBill(d.id),paybill:d=>openPay(d.id),savebill:submitBill,
  billpaid:()=>run(()=>api('payBill',{id:f.id,periode:f.paid?'':ym()}),f.paid?'Tanda lunas dibatalkan':'Ditandai sudah dibayar'),
- delbill:()=>confirm('Hapus tagihan ini?')&&run(()=>api('delBill',{id:f.id}),'Tagihan dihapus'),
+ delbill:()=>ask('Hapus tagihan?','Tagihan ini akan dihapus dari daftar.','Hapus',1).then(ok=>ok&&run(()=>api('delBill',{id:f.id}),'Tagihan dihapus')),
  addgoal:()=>openGoal(),editgoal:d=>openGoal(d.id),savegoal:submitGoal,
- delgoal:()=>confirm('Hapus target ini?')&&run(()=>api('delGoal',{id:f.id}),'Target dihapus'),
- addfund:d=>{const v=parseInt((prompt('Jumlah dana yang ditambahkan (Rp)')||'').replace(/\D/g,''),10);if(v>0)api('addFund',{id:d.id,jumlah:v}).then(()=>{toast('Dana ditambahkan','ok');render()}).catch(e=>toast('Gagal: '+e.message,'err'))},
+ delgoal:()=>ask('Hapus target?','Target ini akan dihapus dari daftar.','Hapus',1).then(ok=>ok&&run(()=>api('delGoal',{id:f.id}),'Target dihapus')),
+ addfund:d=>dlg({t:'Tambah dana',m:'Jumlah dana yang ditambahkan ke target ini.',input:1,num:1,ph:'0',ok:'Tambah'}).then(v=>{const n=parseInt(String(v||'').replace(/\D/g,''),10);if(n>0)api('addFund',{id:d.id,jumlah:n}).then(()=>{toast('Dana ditambahkan','ok');render()}).catch(e=>toast('Gagal: '+e.message,'err'))}),
  exp:openExp,csv:()=>exportCSV($('#ea').value,$('#eb').value),pdf:()=>exportPDF($('#ea').value,$('#eb').value),
  bak:()=>{toast('Membuat cadangan…','ok');api('backup').then(()=>toast('Cadangan tersimpan di Google Drive','ok')).catch(e=>toast('Gagal: '+e.message,'err'))}});
+Object.assign(A,{ovx:()=>ovDone(null),ovok:()=>ovDone($('#dli')?$('#dli').value:true),ovpick:d=>{$('#ov').classList.remove('show');OVP&&OVP(PL[d.i][0])},
+ pickdate:d=>openDP(d.t,d.c),dpset:d=>setDate(d.v),dpnav:d=>{DP.m+=+d.v;if(DP.m<0){DP.m=11;DP.y--}if(DP.m>11){DP.m=0;DP.y++}drawDP()},
+ pickcat:()=>{const all=[...new Set(D.kategori.map(c=>String(c.nama)))].sort((a,b)=>a.localeCompare(b,'id'));openPick('Pilih kategori',[['','Semua kategori'],...all.map(c=>[c,c])],st.fc,v=>{st.fc=v;render()})}});
 document.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(a)A[a.dataset.a]?.(a.dataset,a)});
 document.addEventListener('input',e=>{const t=e.target;
  if(t.matches('#nom,#as,.fmt')){const d=t.value.replace(/\D/g,'');t.value=d?Number(d).toLocaleString('id-ID'):''}
@@ -233,8 +269,9 @@ document.addEventListener('input',e=>{const t=e.target;
 document.addEventListener('change',e=>{const i=e.target.id;
  if(i=='fc'||i=='ff'||i=='ft'){st[i]=e.target.value;$('#list').innerHTML=histList()}
  if(i=='cf'||i=='ct'){st[i=='cf'?'from':'to']=e.target.value;render()}});
-theme();render();
+theme();render();syncLabel(navigator.onLine?undefined:'Offline');
 if(!PIN)showLogin();else load();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&PIN)load()});
 setInterval(()=>{if(!document.hidden&&PIN)load()},30000);
+addEventListener('online',()=>load());addEventListener('offline',()=>syncLabel('Offline'));
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
